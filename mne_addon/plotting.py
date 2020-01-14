@@ -1,6 +1,8 @@
 from matplotlib import pyplot as plt
 from mne.viz import plot_evoked_topo
 from scipy.optimize import curve_fit
+import numpy as np
+from mne.viz import plot_compare_evokeds
 
 def plot_multiple_ERP(epochs, n_row=3, n_col=2, outfile=None, title=None, plot_topo=True):
     """
@@ -53,11 +55,35 @@ def plot_cluster_analysis(epochs_1, epochs_2, test_stat, clusters, p_values, tit
             plt.legend()
             print(i_c)
 
+def gfp(epochs, groups, tmin=None, tmax=None, vlines="auto", baseline=None, cmap="cool", color_coding=None, names=None):
+    """
+    compare different evoked responses by plotting the global field power (gfp)
+    """
+    epochs_tmp = epochs.copy()
+    epochs_tmp.crop(tmin, tmax)
+    epochs_tmp.apply_baseline(baseline)
+    fig, ax = plt.subplots(len(groups))
+    # color_coding={"t-mt":0.66, "t-mb":0.33, "t-b":0, "b-mt":0.66, "b-mb":0.33, "b-t":1.0}
+    #names={"t-mt":"midtop", "t-mb":"midbottom", "t-b":"bottom", "b-mt":"midtop", "b-mb":"midbottom", "b-t":"top"}
+    # groups=[["t-mt", "t-mb", "t-b"],["b-mt", "b-mb", "b-t"]]
+    for i, group in enumerate(groups):
+        print(group)
+        evokeds = dict()
+        for g in group:
+            if names is not None:
+                evokeds[names[g]] = epochs_tmp[g].average()
+            else:
+                evokeds[g] = epochs_tmp[g].average()
+        if color_coding is not None:
+            colors = [color_coding[g] for g in group]
+        else:
+            colors=None
+        plot_compare_evokeds(evokeds, cmap=cmap,colors=colors, axes=ax[i], vlines=vlines, truncate_xaxis=False)
+    del epochs_tmp
 
-
-
-def exponential(x, a, d, b, c):
-    return a**((x-c)*d)+b
+def square_sum(x):
+    return np.sum(x ** 2, axis=0)
 
 def rational(x, a, b, c):
     return a/(x-c)+b
+
