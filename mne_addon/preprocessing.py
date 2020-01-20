@@ -1,14 +1,9 @@
-from os import environ
-from os.path import join
 from mne.io import read_raw_brainvision
 from mne.channels import read_montage
 from mne import set_eeg_reference, add_reference_channels, events_from_annotations
 from mne.epochs import Epochs
 from mne.filter import create_filter
 from autoreject import AutoReject, Ransac
-from autoreject.utils import set_matplotlib_defaults  # noqa
-from mne.viz import plot_filter
-import matplotlib.pyplot as plt  # noqa
 import numpy as np
 from mne.preprocessing.ica import ICA, corrmap, read_ica
 

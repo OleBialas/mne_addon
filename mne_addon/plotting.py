@@ -2,7 +2,13 @@ from matplotlib import pyplot as plt
 from mne.viz import plot_evoked_topo
 from scipy.optimize import curve_fit
 import numpy as np
-from mne.viz import plot_compare_evokeds
+import matplotlib.cm as cmx
+import matplotlib.colors as colors
+from mne.stats import bootstrap_confidence_interval
+from mne_addon.analysis import global_rms, global_field_power
+from mne.epochs import Epochs, BaseEpochs
+from mne.evoked import Evoked
+
 
 def plot_multiple_ERP(epochs, n_row=3, n_col=2, outfile=None, title=None, plot_topo=True):
     """
@@ -40,6 +46,7 @@ def plot_fit(x, y, function, p0=None, xtitle=None, ytitle=None):
     plt.legend()
 
 def plot_cluster_analysis(epochs_1, epochs_2, test_stat, clusters, p_values, title):
+
     times = epochs_1.times
     info = epochs_1.info
     for i_c, c in enumerate(clusters):
@@ -55,34 +62,54 @@ def plot_cluster_analysis(epochs_1, epochs_2, test_stat, clusters, p_values, tit
             plt.legend()
             print(i_c)
 
-def gfp(epochs, groups, tmin=None, tmax=None, vlines="auto", baseline=None, cmap="cool", color_coding=None, names=None):
+def compare_evokeds(dataset, groups, mode="gfp", title=None, subtitles=None, tmin=None, tmax=None, vline=None, baseline=None, color_coding=None, ci=None):
     """
-    compare different evoked responses by plotting the global field power (gfp)
+    Compare different evoked responses
     """
-    epochs_tmp = epochs.copy()
-    epochs_tmp.crop(tmin, tmax)
-    epochs_tmp.apply_baseline(baseline)
-    fig, ax = plt.subplots(len(groups))
-    # color_coding={"t-mt":0.66, "t-mb":0.33, "t-b":0, "b-mt":0.66, "b-mb":0.33, "b-t":1.0}
-    #names={"t-mt":"midtop", "t-mb":"midbottom", "t-b":"bottom", "b-mt":"midtop", "b-mb":"midbottom", "b-t":"top"}
-    # groups=[["t-mt", "t-mb", "t-b"],["b-mt", "b-mb", "b-t"]]
+    cNorm = colors.Normalize(vmin=min(color_coding.values()), vmax=max(color_coding.values()))
+    cmap = cmx.ScalarMappable(norm=cNorm, cmap="cool")
+    if mode == "rms":
+        stat_fun=global_rms
+    elif mode == "gfp":
+        stat_fun=global_field_power
+    else:
+        raise ValueError("Mode must be either 'rms' or 'gfp'!")
+    if isinstance(dataset, list) and all(isinstance(d,Evoked) for d in dataset):
+        if ci is not None:
+            raise  ValueError("Need Epochs to compute Confidence Interval")
+        names = [evoked.comment for evoked in dataset]
+    elif isinstance(dataset, Epochs) or isinstance(dataset, BaseEpochs):
+        names = list(dataset.event_id.keys())
+    else:
+        raise ValueError("Input must be either a list of evoked responses or epoched data")
+    fig, ax = plt.subplots(len(groups),sharex="all", sharey="all")
+    fig.colorbar(cmap, ax=ax)
+    if title is not None:
+        fig.suptitle("%s mode: %s" % (title, mode))
     for i, group in enumerate(groups):
-        print(group)
-        evokeds = dict()
         for g in group:
-            if names is not None:
-                evokeds[names[g]] = epochs_tmp[g].average()
+            idx = np.where(np.array(names)==g)[0][0]
+            if isinstance(dataset, list): # data is evoked
+                data = dataset[idx]
+            else: # data is epochs
+                data = dataset[names[idx]]
+            data.crop(tmin, tmax)
+            times = data.times
+            data.apply_baseline(baseline)
+            if isinstance(dataset, list): # data is evoked
+                raw_data = data.data
             else:
-                evokeds[g] = epochs_tmp[g].average()
-        if color_coding is not None:
-            colors = [color_coding[g] for g in group]
-        else:
-            colors=None
-        plot_compare_evokeds(evokeds, cmap=cmap,colors=colors, axes=ax[i], vlines=vlines, truncate_xaxis=False)
-    del epochs_tmp
+                raw_data = data._data
+            data = stat_fun(raw_data)
+            ax[i].plot(times, data, color=cmap.to_rgba(color_coding[names[idx]]), label=g)
+            if ci is not None:
+                ci_low, ci_high = bootstrap_confidence_interval(raw_data, stat_fun=stat_fun)
+                ax[i].fill_between(times, ci_low, ci_high)
+            if subtitles is not None:
+                ax[i].set_title(subtitles[i])
+            if vline is not None:
+                ax[i].axvline(vline, linestyle="--", c="black")
 
-def square_sum(x):
-    return np.sum(x ** 2, axis=0)
 
 def rational(x, a, b, c):
     return a/(x-c)+b
