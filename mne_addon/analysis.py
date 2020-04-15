@@ -40,40 +40,30 @@ def signal_to_noise(epochs, signal_interval=(0.68, 0.72)):
     return snr
 
 
-def global_field_power(data):
+def global_estimate(data, mode="gfp"):
     """
-    Compute the global field power which is the standard deviation of the
-    squared evoked response if inumpyut data is 3-dimensional it is considered
+    Compute a global estimate of the eeg data. If mode = gfp, return the global
+    field power which is the standard deviation of the squared evoked response.
+    If mode = rms return the root mean square over all channels.
+    If inumput data is 3-dimensional it is considered
     as epoched data and averaged over the first dimension (number
     of epochs) to obtain the evoked response.
     """
     if isinstance(data, Evoked) or isinstance(data, Epochs):
         data = data.data
-    if data.ndim == 3:
+    if data.ndim == 3:  # average over epochs
         evoked = numpy.mean(data, axis=0)
     elif data.ndim == 2:
         evoked = data
     else:
         raise ValueError("Data must be either 2-dimensional (evoked responses)"
                          "or 3-dimensional (epochs)")
-    return numpy.std(evoked**2, axis=0)
-
-
-def global_rms(data):
-    """
-    Compute the square-root of the mean over all channels after squaring
-    (= root mean square).If inumpyut data is 3-dimensional it is considered as
-    epoched data and averaged over the first dimension (numberof epochs)
-    to obtain the evoked response.
-    """
-    if data.ndim == 3:
-        evoked = numpy.mean(data, axis=0)
-    elif data.ndim == 2:
-        evoked = data
+    if mode == "gfp":
+        return numpy.std(evoked**2, axis=0)
+    elif mode == "rms":
+        return numpy.sqrt(numpy.mean(evoked**2, axis=0))
     else:
-        raise ValueError("Data must be either 2-dimensional (evoked responses)"
-                         " or 3-dimensional (epochs)")
-    return numpy.sqrt(numpy.mean(evoked**2, axis=0))
+        raise ValueError("Mode must be either 'rms' or 'gfp'")
 
 
 def find_peaks(data, min_dist=1, thresh=0.3, degree=None):
