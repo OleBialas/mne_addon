@@ -1,5 +1,8 @@
 from mne.evoked import Evoked
-from mne.epochs import Epochs, EpochsFIF
+from mne import combine_evoked
+from mne.epochs import Epochs
+from mne.channels import make_1020_channel_selections
+from mne.stats import spatio_temporal_cluster_test
 import numpy as np
 from matplotlib import pyplot as plt
 import matplotlib.colors as colors
@@ -10,6 +13,43 @@ _scaling = 10**6  # scaing factor for the data
 def set_scaling_factor(scaling_factor):
     global _scaling
     _scaling = scaling_factor
+
+
+def permutation_cluster_analysis(epochs, n_permutations=1000, plot=True):
+    """
+    Do a spatio-temporal cluster analyis to compare experimental conditions.
+    """
+    # get the data for each event in epochs.evet_id transpose because the cluster test requires
+    # channels to be last. In this case, inference is done over items. In the same manner, we could
+    # also conduct the test over, e.g., subjects.
+    tfce = dict(start=.2, step=.2)
+    time_unit = dict(time_unit="s")
+    events = list(epochs.event_id.keys())
+    if plot:
+        if len(events) == 2:  # When comparing two events subtract evokeds
+            evoked = combine_evoked([epochs[events[0]].average(), -epochs[events[1]].average()],
+                                    weights='equal')
+            title = "%s vs %s" % (events[0], events[1])
+        elif len(events) > 2:  # When comparing more than two events verage them
+            evoked = combine_evoked([epochs[e].average() for e in events], weights='equal')
+            evoked.data /= len(events)
+            title = ""
+            for e in events:
+                title += e+" + "
+            title = title[:-2]
+        evoked.plot_joint(title=title, ts_args=time_unit, topomap_args=time_unit)
+        X = [epochs[e].get_data().transpose(0, 2, 1) for e in events]
+        t_obs, clusters, cluster_pv, h0 = spatio_temporal_cluster_test(X, tfce, n_permutations)
+        significant_points = cluster_pv.reshape(t_obs.shape).T < .05
+        selections = make_1020_channel_selections(evoked.info, midline="12z")
+        fig, axes = plt.subplots(nrows=3, figsize=(8, 8))
+        axes = {sel: ax for sel, ax in zip(selections, axes.ravel())}
+        evoked.plot_image(axes=axes, group_by=selections, colorbar=False, show=False,
+                          mask=significant_points, show_names="all", titles=None,
+                          **time_unit)
+        plt.colorbar(axes["Left"].images[-1], ax=list(axes.values()), shrink=.3, label="µV")
+
+    plt.show()
 
 
 def noise_rms(epochs):
@@ -51,9 +91,9 @@ def get_evoked_data(data):
     of epochs) to obtain the evoked response.
     """
     if isinstance(data, Evoked):
-        data = data.data
-    elif isinstance(data, EpochsFIF):
         data = data._data
+    elif isinstance(data, Epochs):
+        data = data.data
     if data.ndim == 3:  # average over epochs
         data = np.mean(data, axis=0)
     return data
