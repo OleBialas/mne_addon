@@ -3,8 +3,9 @@ from mne import combine_evoked
 from mne.epochs import Epochs
 from mne.channels import make_1020_channel_selections
 from mne.stats import spatio_temporal_cluster_test
-import numpy
+import numpy as np
 from matplotlib import pyplot as plt
+import matplotlib.colors as colors
 from sklearn.cluster import KMeans
 _scaling = 10**6  # scaing factor for the data
 
@@ -63,7 +64,7 @@ def noise_rms(epochs):
         if not i % 2:
             epochs_tmp._data[i, :, :] = -epochs_tmp._data[i, :, :]
     evoked = epochs_tmp.average().data
-    rms = numpy.sqrt(numpy.mean(evoked**2))*_scaling
+    rms = np.sqrt(np.mean(evoked**2))
     del epochs_tmp
     return rms
 
@@ -75,12 +76,12 @@ def signal_to_noise(epochs, signal_interval=(0.68, 0.72)):
     signal = epochs.copy()
     signal.crop(signal_interval[0], signal_interval[1])
     n_rms = noise_rms(epochs)
-    s_rms = numpy.sqrt(numpy.mean(signal.average().data**2))*_scaling
+    s_rms = np.sqrt(np.mean(signal.average().data**2))
     snr = s_rms/n_rms  # signal rms divided by noise rms
     return snr
 
 
-def global_estimate(data, mode="gfp"):
+def get_evoked_data(data):
     """
     Compute a global estimate of the eeg data. If mode = gfp, return the global
     field power which is the standard deviation of the squared evoked response.
@@ -92,20 +93,20 @@ def global_estimate(data, mode="gfp"):
     if isinstance(data, Evoked):
         data = data._data
     elif isinstance(data, Epochs):
-        data=data.data
+        data = data.data
     if data.ndim == 3:  # average over epochs
-        evoked = numpy.mean(data, axis=0)
-    elif data.ndim == 2:
-        evoked = data
-    else:
-        raise ValueError("Data must be either 2-dimensional (evoked responses)"
-                         "or 3-dimensional (epochs)")
-    if mode == "gfp":
-        return numpy.std(evoked**2, axis=0)
-    elif mode == "rms":
-        return numpy.sqrt(numpy.mean(evoked**2, axis=0))
-    else:
-        raise ValueError("Mode must be either 'rms' or 'gfp'")
+        data = np.mean(data, axis=0)
+    return data
+
+
+def rms(data):
+    data = get_evoked_data(data)
+    return np.sqrt(np.mean(data**2, axis=0))
+
+
+def gfp(data):
+    data = get_evoked_data(data)
+    return np.std(data**2, axis=0)
 
 
 def find_peaks(data, min_dist=1, thresh=0.3, degree=None):
@@ -120,7 +121,7 @@ def find_peaks(data, min_dist=1, thresh=0.3, degree=None):
     if degree is not None:
         base = peakutils.baseline(data, degree)
     else:
-        base = numpy.zeros(len(data))
+        base = np.zeros(len(data))
     peak_idx = peakutils.indexes(data-base, thres=thresh, min_dist=min_dist)
     return peak_idx, base
 
@@ -142,7 +143,7 @@ def peak_clustering(latency, amplitude, k=3, max_k=10, plot=True):
         cluster_intervals:
 
     """
-    data = numpy.array([latency, amplitude]).T
+    data = np.array([latency, amplitude]).T
     sse = {}
     for this_k in range(1, max_k):
         kmeans = KMeans(
@@ -165,6 +166,79 @@ def peak_clustering(latency, amplitude, k=3, max_k=10, plot=True):
         plt.show()
     cluster_intervals = []
     for i in range(k):
-        idx = numpy.where(clusters == i)[0]
+        idx = np.where(clusters == i)[0]
         cluster_intervals.append((min(latency[idx]), max(latency[idx])))
     return cluster_intervals
+
+
+def wavelet_tf(data, times, sample_rate, channel="Fz", frex=None,
+               n_cycles=[4, 6, 8], baseline=None, crop=None, wavelet_dur=4,
+               plot=True):
+    """
+    Time-frequency analysis of epoched data using wavelets
+    """
+    if not (isinstance(data, np.ndarray) and data.ndim == 2):
+        raise ValueError("data must a 2-d matrix with trials x time!")
+    if crop is None:
+        print("WARNING! Not cropping the data will result in edge artifacts!")
+    elif isinstance(crop, float):
+        n_crop = int(crop*sample_rate)
+    elif isinstance(crop, int):
+        n_crop = crop
+    else:
+        raise ValueError("crop must be None, an integer or a float")
+    if frex is None:
+        frex = np.linspace(2, 40, 50)
+    if baseline is None:
+        print("WARNING! No baseline specified!")
+    elif not ((isinstance(baseline, tuple) or isinstance(baseline, list)) and
+              len(baseline) == 2):
+        raise ValueError("Baseline must be a tuple or list of length two \n"
+                         "containing start and stop of the baseline interval "
+                         "in seconds!")
+    else:  # get start an stop indices for baseline
+        bi = (np.where(epochs.times == baseline[0])[0][0],
+              np.where(epochs.times == baseline[1])[0][0])
+    wavelet_time = np.linspace(-(wavelet_dur/2), wavelet_dur/2,
+                               int(epochs.info["sfreq"]*wavelet_dur)+1)
+    half_wave = int((len(wavelet_time)-1)/2)
+    # length of the result of convolution is N+M-1
+    nConv = len(wavelet_time)+len(data.flatten())-1
+    # initialize output time-frequency data
+    tf_data = np.zeros([len(n_cycles), len(frex), data.shape[1]])
+
+    dataX = np.fft.fft(data.flatten(), n=nConv)
+    # loop over cycles and frequencies
+    for c, cycles in enumerate(n_cycles):
+        for f, freq in enumerate(frex):
+            # create complex morlet wavelet, compute it's FT and normalize
+            s = cycles/(2*np.pi*freq)
+            cmw = np.exp(2j*np.pi*freq*wavelet_time) * np.exp(
+                -wavelet_time ** 2/(2*s ** 2))
+            cmwX = np.fft.fft(cmw, n=nConv)
+            cmwX = cmwX/max(cmwX)
+            # convolve by multiplying FT of data and wavelet:
+            signal = np.fft.ifft(cmwX*dataX)
+            signal = signal[half_wave:-half_wave]  # trim edges
+            signal = signal.reshape(data.shape)  # reshape to trials x times
+            # put the average power across trials into the big matrix:
+            tf_data[c, f, :] = np.mean(np.abs(signal)**2, axis=0)
+
+    # Compute the baseline for each number of cycles and each frequency
+    baseline_data = tf_data[:, :, bi[0]:bi[1]].mean(axis=2)
+    tf_data = 10*np.log10(tf_data / baseline_data[:, :, np.newaxis])
+    tf_data = tf_data[:, :, n_crop:-n_crop+1]
+    if plot:
+        x, y = np.meshgrid(epochs.times[n_crop:-n_crop+1], frex)
+        fig, ax = plt.subplots(1, len(n_cycles), sharex=True, sharey=True)
+        fig.suptitle("baseline from %s to %s seconds"
+                     % (baseline[0], baseline[1]))
+        for i, cycles in enumerate(n_cycles):
+            z = tf_data[i, :, :]
+            cax = ax[i].contour(x, y, z, linewidths=0.3,
+                                colors="k", norm=colors.Normalize())
+            cax = ax[i].contourf(x, y, z, norm=colors.Normalize(),
+                                 cmap=plt.cm.jet)
+            ax[i].set_title("wavelet with %s cycles" % (cycles))
+        fig.colorbar(cax)
+        plt.show()

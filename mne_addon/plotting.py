@@ -5,7 +5,7 @@ import numpy as numpy
 import matplotlib.cm as cmx
 import matplotlib.colors as colors
 from mne.stats import bootstrap_confidence_interval
-from mne_addon.analysis import global_rms, global_field_power
+from mne_addon.analysis import gfp, rms
 from mne.epochs import Epochs, BaseEpochs
 from mne.evoked import Evoked
 from sklearn.cluster import KMeans
@@ -73,22 +73,20 @@ def plot_cluster_analysis(epochs_1, epochs_2, test_stat, clusters, p_values,
 
 
 def compare_evokeds(dataset, groups, mode="gfp", title=None, subtitles=None,
-                    tmin=None, tmax=None, vline=None, baseline=None,
-                    color_coding=None, ci=None):
+                    vline=None, color_coding=None, ci=None):
     """
     Compare different evoked responses
     """
     cNorm = colors.Normalize(vmin=min(color_coding.values()),
                              vmax=max(color_coding.values()))
     cmap = cmx.ScalarMappable(norm=cNorm, cmap="cool")
-    if mode == "rms":
-        stat_fun = global_rms
-    elif mode == "gfp":
-        stat_fun = global_field_power
+    if mode == "gfp":
+        stat_fun = gfp
+    elif mode == "rms":
+        stat_fun = rms
     else:
         raise ValueError("Mode must be either 'rms' or 'gfp'!")
-    if isinstance(dataset, list) and all(
-            isinstance(d, Evoked) for d in dataset):
+    if isinstance(dataset, list) and all(isinstance(d, Evoked) for d in dataset):
         if ci is not None:
             raise ValueError("Need Epochs to compute Confidence Interval")
         names = [evoked.comment for evoked in dataset]
@@ -108,9 +106,7 @@ def compare_evokeds(dataset, groups, mode="gfp", title=None, subtitles=None,
                 data = dataset[idx]
             else:  # data is epochs
                 data = dataset[names[idx]]
-            data.crop(tmin, tmax)
             times = data.times
-            data.apply_baseline(baseline)
             if isinstance(dataset, list):  # data is evoked
                 raw_data = data.data
             else:
@@ -119,13 +115,44 @@ def compare_evokeds(dataset, groups, mode="gfp", title=None, subtitles=None,
             ax[i].plot(times, data, color=cmap.to_rgba(
                 color_coding[names[idx]]), label=g)
             if ci is not None:
-                ci_low, ci_high = \
-                    bootstrap_confidence_interval(raw_data, stat_fun=stat_fun)
-                ax[i].fill_between(times, ci_low, ci_high)
+                ci_low, ci_high = bootstrap_confidence_interval(raw_data, ci=ci, stat_fun=stat_fun)
+                ax[i].fill_between(times, ci_low, ci_high, color=cmap.to_rgba(
+                    color_coding[names[idx]]), alpha=0.3)
             if subtitles is not None:
                 ax[i].set_title(subtitles[i])
             if vline is not None:
                 ax[i].axvline(vline, linestyle="--", c="black")
+
+
+def bootstrap_comparison(list_of_epochs, stat_fun=None, color_coding=None, title=None, subtitles=None,
+                         vline=None, ci=None):
+    """
+    Compare different evoked responses
+    """
+    if stat_fun is None:
+        stat_fun = gfp
+    cNorm = colors.Normalize(vmin=min(color_coding.values()),
+                             vmax=max(color_coding.values()))
+    cmap = cmx.ScalarMappable(norm=cNorm, cmap="cool")
+
+    fig, ax = plt.subplots(len(list_of_epochs), sharex="all", sharey="all")
+    fig.colorbar(cmap, ax=ax)
+    if title is not None:
+        fig.suptitle("%s mode: %s" % (title))
+    for i, epochs in enumerate(list_of_epochs):
+        for event in epochs.event_id.keys():
+            data = epochs[event].get_data()
+            data_to_plot = stat_fun(data)
+            ax[i].plot(epochs.times, data_to_plot, color=cmap.to_rgba(
+                color_coding[event]), label=event)
+            if ci is not None:
+                ci_low, ci_high = bootstrap_confidence_interval(data, ci=ci, stat_fun=stat_fun)
+                ax[i].fill_between(epochs.times, ci_low, ci_high, color=cmap.to_rgba(
+                    color_coding[event]), alpha=0.3)
+        if subtitles is not None:
+            ax[i].set_title(subtitles[i])
+        if vline is not None:
+            ax[i].axvline(vline, linestyle="--", c="black")
 
 
 def peak_clustering(latency, amplitude, k=3, max_k=10):
