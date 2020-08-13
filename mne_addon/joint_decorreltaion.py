@@ -133,7 +133,7 @@ evoked2.plot()
 # +1 identity matrix for con1, -1 for con2:
 L = np.concatenate([
     np.tile(np.identity(epochs._data.shape[2]), epochs[con1]._data.shape[0]),
-    np.tile(np.identity(epochs._data.shape[2]), epochs[con2]._data.shape[0])], axis=1)
+    np.tile(np.identity(epochs._data.shape[2]), epochs[con2]._data.shape[0])*-1], axis=1)
 
 Zbar = L @ Z  # filter data
 C1 = Zbar.T @ Zbar  # Covariance of filtered data
@@ -149,7 +149,6 @@ plt.show()
 Ybar = Zbar @ Q2  # Components from the bias filtered data
 W2 = P2 @ N2 @ Q2  # The unmixing matrix
 Y2 = Y @ W2  # Components from the unfiltered data
-
 # Y and Ybar is the same except for the scaling --> Ybar needs to be devided by
 # n_epochs:
 
@@ -169,7 +168,7 @@ N2_inv = np.diag(1/np.diag(N2))
 X_re = Y2 @ Q2.T @ N2_inv @ P2.T @ Q1.T @ N1_inv @ P1.T
 epochs_re = epochs.copy()
 epochs_re._data = np.reshape(X_re.T, [-1, n_epochs, n_times]).transpose([1, 0, 2])
-
-np.reshape(X_re.T, [-1, n_epochs, n_times]).transpose([1, 0, 2]).shape
-
-X_re.shape
+evoked = epochs_re.average()
+evoked.plot()
+times = np.arange(0.01, 0.24, 0.02)
+evoked.plot_joint(times)
