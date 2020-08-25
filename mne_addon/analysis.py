@@ -5,7 +5,6 @@ from mne.channels import make_1020_channel_selections
 from mne.stats import spatio_temporal_cluster_test
 import numpy as np
 from matplotlib import pyplot as plt
-import matplotlib.colors as colors
 from sklearn.cluster import KMeans
 _scaling = 10**6  # scaing factor for the data
 
@@ -171,12 +170,11 @@ def peak_clustering(latency, amplitude, k=3, max_k=10, plot=True):
     return cluster_intervals
 
 
+"""
 def wavelet_tf(data, times, sample_rate, channel="Fz", frex=None,
                n_cycles=[4, 6, 8], baseline=None, crop=None, wavelet_dur=4,
                plot=True):
-    """
-    Time-frequency analysis of epoched data using wavelets
-    """
+    #Time-frequency analysis of epoched data using wavelets
     if not (isinstance(data, np.ndarray) and data.ndim == 2):
         raise ValueError("data must a 2-d matrix with trials x time!")
     if crop is None:
@@ -242,3 +240,4 @@ def wavelet_tf(data, times, sample_rate, channel="Fz", frex=None,
             ax[i].set_title("wavelet with %s cycles" % (cycles))
         fig.colorbar(cax)
         plt.show()
+"""
