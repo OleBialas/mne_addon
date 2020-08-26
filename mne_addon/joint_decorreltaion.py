@@ -104,9 +104,24 @@ class JointDecorrelation:
         return P, N, Q
 
 
+def surrogate_data(epochs, kind="shuffle"):
+
+    n_epochs, n_channels, n_times = epochs._data.shape
+    data = np.concatenate(epochs._data, axis=0)
+    data = np.transpose(epochs._data, (1, 0, 2))
+    data = data.reshape(n_channels, n_epochs * n_times).T
+
+    if kind == "shuffle":
+        [np.random.shuffle(data[:, i]) for i in range(n_channels)]
+
+    data = np.reshape(data.T, [-1, n_epochs, n_times]).transpose([1, 0, 2])
+    return mne.EpochsArray(data, epochs.info, epochs.events, epochs.tmin)
+
+
 def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95):
     # pre allocate data matrix for bootstrap runs
     # TODO: implement for kind=="difference"
+    ci = (((1 - ci) / 2) * 100, ((1 - ((1 - ci) / 2))) * 100)
     n_epochs, n_channels, n_times = epochs._data.shape
     data = np.zeros([n_bootstrap, keep2, n_times])
     data.shape
@@ -118,12 +133,12 @@ def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95):
         jd.fit(permutated_epochs, keep1=40, keep2=15)
         Y = jd.get_components(permutated_epochs)
         data[i, :, :] = Y.average().data
-        ci = (((1 - ci) / 2) * 100, ((1 - ((1 - ci) / 2))) * 100)
         ci_low, ci_up = np.percentile(np.abs(data), ci, axis=0)
     return ci_low, ci_up
 
+
 if __name__ == "__main":
-    
+
     from matplotlib import pyplot as plt
     data_path = mne.datasets.sample.data_path()
     raw_fname = data_path + '/MEG/sample/sample_audvis_filt-0-40_raw.fif'
@@ -137,12 +152,11 @@ if __name__ == "__main":
     epochs._data = detrend(epochs._data, axis=-1)
     con1, con2 = "1", "2"  # the conditions to compare
     epochs = epochs[[con1, con2]]  # only use auditory events
-    jd = JointDecorrelation(kind="difference")
+    jd = JointDecorrelation(kind="evoked")
     jd.fit(epochs, keep1=40, keep2=5)
     Y = jd.get_components(epochs).average().data
     ci_low, ci_up = bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95)
-    Y.shape
 
-    i_component = 0
+    i_component = 1
     plt.plot(epochs.times, np.abs(Y[i_component, :]))
-    plt.fill_between(epochs.times, ci_low[i_component, :], ci_up[i_component, :])
+    plt.fill_between(epochs.times, ci_low[i_component, :], ci_up[i_component, :], alpha=.5)
