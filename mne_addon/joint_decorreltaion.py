@@ -118,7 +118,7 @@ def surrogate_data(epochs, kind="shuffle"):
     return mne.EpochsArray(data, epochs.info, epochs.events, epochs.tmin)
 
 
-def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95):
+def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, absolute=True):
     # pre allocate data matrix for bootstrap runs
     # TODO: implement for kind=="difference"
     ci = (((1 - ci) / 2) * 100, ((1 - ((1 - ci) / 2))) * 100)
@@ -130,15 +130,21 @@ def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95):
         permutated_epochs = epochs.copy()
         permutated_epochs._data = permutated_epochs._data[indices, :, :]
         jd = JointDecorrelation(kind="evoked")
-        jd.fit(permutated_epochs, keep1=40, keep2=15)
+        jd.fit(permutated_epochs, keep1=keep1, keep2=keep2)
         Y = jd.get_components(permutated_epochs)
         data[i, :, :] = Y.average().data
-        ci_low, ci_up = np.percentile(np.abs(data), ci, axis=0)
-    return ci_low, ci_up
+        if absolute:
+            data = np.abs(data)
+        ci_low, ci_up = np.percentile(data, ci, axis=0)
+        # now compute "normal" components
+        jd = JointDecorrelation(kind="evoked")
+        jd.fit(epochs, keep1=keep1, keep2=keep2)
+        Y = jd.get_components(epochs)
+
+    return Y, ci_low, ci_up
 
 
 if __name__ == "__main":
-
     from matplotlib import pyplot as plt
     data_path = mne.datasets.sample.data_path()
     raw_fname = data_path + '/MEG/sample/sample_audvis_filt-0-40_raw.fif'
@@ -152,11 +158,9 @@ if __name__ == "__main":
     epochs._data = detrend(epochs._data, axis=-1)
     con1, con2 = "1", "2"  # the conditions to compare
     epochs = epochs[[con1, con2]]  # only use auditory events
-    jd = JointDecorrelation(kind="evoked")
-    jd.fit(epochs, keep1=40, keep2=5)
-    Y = jd.get_components(epochs).average().data
-    ci_low, ci_up = bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95)
+    Y, ci_low, ci_up = bootstrap_components(epochs, n_bootstrap=100, keep1=40, keep2=15, ci=0.95)
+    Y = Y.average().data
 
-    i_component = 1
-    plt.plot(epochs.times, np.abs(Y[i_component, :]))
+    i_component = 0
+    plt.plot(epochs.times, np.abs(Y.average().data[i_component, :]))
     plt.fill_between(epochs.times, ci_low[i_component, :], ci_up[i_component, :], alpha=.5)
