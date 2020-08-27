@@ -118,22 +118,27 @@ def surrogate_data(epochs, kind="shuffle"):
     return mne.EpochsArray(data, epochs.info, epochs.events, epochs.tmin)
 
 
-def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95):
+def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, invert=True):
     # pre allocate data matrix for bootstrap runs
     # TODO: implement for kind=="difference"
     ci = (((1 - ci) / 2) * 100, ((1 - ((1 - ci) / 2))) * 100)
     n_epochs, n_channels, n_times = epochs._data.shape
     data = np.zeros([n_bootstrap, keep2, n_times])
-    data.shape
+    jd = JointDecorrelation(kind="evoked")
+    jd.fit(epochs, keep1=keep1, keep2=keep2)
     for i in range(n_bootstrap):
         indices = np.random.choice(np.arange(n_epochs, dtype=int), n_epochs, replace=True)
         permutated_epochs = epochs.copy()
         permutated_epochs._data = permutated_epochs._data[indices, :, :]
-        jd = JointDecorrelation(kind="evoked")
-        jd.fit(permutated_epochs, keep1=40, keep2=15)
-        Y = jd.get_components(permutated_epochs)
-        data[i, :, :] = Y.average().data
-        ci_low, ci_up = np.percentile(np.abs(data), ci, axis=0)
+        jd_i = JointDecorrelation(kind="evoked")
+        jd_i.fit(permutated_epochs, keep1=keep1, keep2=keep2)
+        components_i = jd.get_components(permutated_epochs).average().data
+        if invert:  # check if dot product of vectors is negative, if so invert
+            for nc in range(components_i.shape[0]):
+                if(np.dot(jd.mixing[nc, :], jd_i.mixing[nc, :])) < -1e-05:
+                    components_i[nc, :] = components_i[nc, :]*-1
+        data[i, :, :] = components_i
+        ci_low, ci_up = np.percentile(data, ci, axis=0)
     return ci_low, ci_up
 
 
@@ -154,9 +159,10 @@ if __name__ == "__main":
     epochs = epochs[[con1, con2]]  # only use auditory events
     jd = JointDecorrelation(kind="evoked")
     jd.fit(epochs, keep1=40, keep2=5)
-    Y = jd.get_components(epochs).average().data
-    ci_low, ci_up = bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95)
 
-    i_component = 1
-    plt.plot(epochs.times, np.abs(Y[i_component, :]))
-    plt.fill_between(epochs.times, ci_low[i_component, :], ci_up[i_component, :], alpha=.5)
+    components = jd.get_components(epochs).average().data
+    ci_low, ci_up = bootstrap_components(
+        epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, invert=True)
+
+    plt.plot(epochs.times, components[0, :])
+    plt.fill_between(epochs.times, ci_low[0, :], ci_up[0, :], alpha=.5)
