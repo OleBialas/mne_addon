@@ -118,11 +118,7 @@ def surrogate_data(epochs, kind="shuffle"):
     return mne.EpochsArray(data, epochs.info, epochs.events, epochs.tmin)
 
 
-<<<<<<< HEAD
-def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, absolute=True):
-=======
 def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, invert=True):
->>>>>>> 683d0fb6c759ace495d8cf9b5aa05cf9aa3d555c
     # pre allocate data matrix for bootstrap runs
     # TODO: implement for kind=="difference"
     ci = (((1 - ci) / 2) * 100, ((1 - ((1 - ci) / 2))) * 100)
@@ -134,19 +130,6 @@ def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, 
         indices = np.random.choice(np.arange(n_epochs, dtype=int), n_epochs, replace=True)
         permutated_epochs = epochs.copy()
         permutated_epochs._data = permutated_epochs._data[indices, :, :]
-<<<<<<< HEAD
-        jd = JointDecorrelation(kind="evoked")
-        jd.fit(permutated_epochs, keep1=keep1, keep2=keep2)
-        Y = jd.get_components(permutated_epochs)
-        data[i, :, :] = Y.average().data
-        if absolute:
-            data = np.abs(data)
-        ci_low, ci_up = np.percentile(data, ci, axis=0)
-        # now compute "normal" components
-        jd = JointDecorrelation(kind="evoked")
-        jd.fit(epochs, keep1=keep1, keep2=keep2)
-        Y = jd.get_components(epochs)
-=======
         jd_i = JointDecorrelation(kind="evoked")
         jd_i.fit(permutated_epochs, keep1=keep1, keep2=keep2)
         components_i = jd.get_components(permutated_epochs).average().data
@@ -156,10 +139,8 @@ def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, 
                     components_i[nc, :] = components_i[nc, :]*-1
         data[i, :, :] = components_i
         ci_low, ci_up = np.percentile(data, ci, axis=0)
-    return ci_low, ci_up
->>>>>>> 683d0fb6c759ace495d8cf9b5aa05cf9aa3d555c
 
-    return Y, ci_low, ci_up
+    return ci_low, ci_up
 
 
 if __name__ == "__main":
@@ -176,21 +157,12 @@ if __name__ == "__main":
     epochs._data = detrend(epochs._data, axis=-1)
     con1, con2 = "1", "2"  # the conditions to compare
     epochs = epochs[[con1, con2]]  # only use auditory events
-<<<<<<< HEAD
-    Y, ci_low, ci_up = bootstrap_components(epochs, n_bootstrap=100, keep1=40, keep2=15, ci=0.95)
-    Y = Y.average().data
-
-    i_component = 0
-    plt.plot(epochs.times, np.abs(Y.average().data[i_component, :]))
-    plt.fill_between(epochs.times, ci_low[i_component, :], ci_up[i_component, :], alpha=.5)
-=======
     jd = JointDecorrelation(kind="evoked")
     jd.fit(epochs, keep1=40, keep2=5)
 
     components = jd.get_components(epochs).average().data
     ci_low, ci_up = bootstrap_components(
-        epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, invert=True)
+        epochs, n_bootstrap=100, keep1=40, keep2=15, ci=0.95, invert=True)
 
     plt.plot(epochs.times, components[0, :])
     plt.fill_between(epochs.times, ci_low[0, :], ci_up[0, :], alpha=.5)
->>>>>>> 683d0fb6c759ace495d8cf9b5aa05cf9aa3d555c
