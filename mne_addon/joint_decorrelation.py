@@ -151,7 +151,8 @@ if __name__ == "__main":
     raw = mne.io.read_raw_fif(raw_fname, preload=True)
     events = mne.read_events(event_fname)
     tmin, tmax = -0.2, 0.5
-    reject = dict(eeg=80e-6)
+    reject = None
+    # reject = dict(eeg=80e-6)
     epochs = mne.Epochs(raw, events, tmin=-0.2, tmax=0.5, picks=('eeg'),
                         baseline=None, reject=reject, preload=True)
     epochs._data = detrend(epochs._data, axis=-1)
@@ -166,3 +167,37 @@ if __name__ == "__main":
 
     plt.plot(epochs.times, components[0, :])
     plt.fill_between(epochs.times, ci_low[0, :], ci_up[0, :], alpha=.5)
+
+    jd = JointDecorrelation(kind="difference")
+    jd.fit(epochs, keep1=40, keep2=10, keep3=5)
+    components = jd.get_components(epochs).average()
+    components.plot()
+    reprojected = jd.reproject_components(epochs)
+    reprojected.average().plot()
+
+    # test bootstrap:
+    n_bootstrap, keep2, keep1, invert = 10, 40, 1, True
+    ci = (((1 - .95) / 2) * 100, ((1 - ((1 - .95) / 2))) * 100)
+    n_epochs, n_channels, n_times = epochs._data.shape
+    data = np.zeros([n_bootstrap, keep2, n_times])
+    jd = JointDecorrelation(kind="evoked")
+    jd.fit(epochs, keep1=keep1, keep2=keep2)
+    components = jd.get_components(epochs).average()
+    for i in range(n_bootstrap):
+        indices = np.random.choice(np.arange(n_epochs, dtype=int), n_epochs, replace=True)
+        permutated_epochs = epochs.copy()
+        permutated_epochs._data = permutated_epochs._data[indices, :, :]
+        jd_i = JointDecorrelation(kind="evoked")
+        jd_i.fit(permutated_epochs, keep1=keep1, keep2=keep2)
+        components_i = jd.get_components(permutated_epochs).average().data
+        if invert:  # check if dot product of vectors is negative, if so invert
+            for nc in range(components_i.shape[0]):
+                dotproduct = np.dot(jd.mixing[nc, :], jd_i.mixing[nc, :])
+                if dotproduct < 0:
+                    plt.plot(epochs.times, components_i[nc, :], label="bootstrap component")
+                    plt.plot(epochs.times, components[nc, :], label="original component")
+                    plt.title("W x W_i = %s" % (dotproduct))
+                    plt.legend()
+                    plt.show()
+
+                    components_i[nc, :] = components_i[nc, :]*-1
