@@ -135,7 +135,11 @@ def bootstrap_components(epochs, n_bootstrap=1000, keep1=40, keep2=15, ci=0.95, 
         components_i = jd.get_components(permutated_epochs).average().data
         if invert:  # check if dot product of vectors is negative, if so invert
             for nc in range(components_i.shape[0]):
-                if(np.dot(jd.mixing[nc, :], jd_i.mixing[nc, :])) < -1e-05:
+                # compute normalized dot product, invert if < 0
+                dot = np.dot(jd.mixing[nc, :], jd_i.mixing[nc, :])
+                dot_norm = dot / \
+                    (np.linalg.norm(jd.mixing[nc, :]) * np.linalg.norm(jd_i.mixing[nc, :]))
+                if dot_norm < 0:
                     components_i[nc, :] = components_i[nc, :]*-1
         data[i, :, :] = components_i
         ci_low, ci_up = np.percentile(data, ci, axis=0)
@@ -183,6 +187,7 @@ if __name__ == "__main":
     jd = JointDecorrelation(kind="evoked")
     jd.fit(epochs, keep1=keep1, keep2=keep2)
     components = jd.get_components(epochs).average()
+    i, nc = 0, 0
     for i in range(n_bootstrap):
         indices = np.random.choice(np.arange(n_epochs, dtype=int), n_epochs, replace=True)
         permutated_epochs = epochs.copy()
@@ -193,6 +198,9 @@ if __name__ == "__main":
         if invert:  # check if dot product of vectors is negative, if so invert
             for nc in range(components_i.shape[0]):
                 dotproduct = np.dot(jd.mixing[nc, :], jd_i.mixing[nc, :])
+                dotproduct /= (np.linalg.norm(jd.mixing[nc, :])
+                               * np.linalg.norm(jd_i.mixing[nc, :]))
+
                 if dotproduct < 0:
                     plt.plot(epochs.times, components_i[nc, :], label="bootstrap component")
                     plt.plot(epochs.times, components[nc, :], label="original component")

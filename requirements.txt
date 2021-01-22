@@ -1,0 +1,6 @@
+numpy
+mne
+matplotlib
+scikit-learn
+scipy
+autoreject
