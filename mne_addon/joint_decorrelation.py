@@ -186,8 +186,8 @@ if __name__ == "__main":
     data = np.zeros([n_bootstrap, keep2, n_times])
     jd = JointDecorrelation(kind="evoked")
     jd.fit(epochs, keep1=keep1, keep2=keep2)
-    components = jd.get_components(epochs).average()
-    i, nc = 0, 0
+
+    components = jd.get_components(epochs).average().data
     for i in range(n_bootstrap):
         indices = np.random.choice(np.arange(n_epochs, dtype=int), n_epochs, replace=True)
         permutated_epochs = epochs.copy()
@@ -200,12 +200,18 @@ if __name__ == "__main":
                 dotproduct = np.dot(jd.mixing[nc, :], jd_i.mixing[nc, :])
                 dotproduct /= (np.linalg.norm(jd.mixing[nc, :])
                                * np.linalg.norm(jd_i.mixing[nc, :]))
-
                 if dotproduct < 0:
-                    plt.plot(epochs.times, components_i[nc, :], label="bootstrap component")
-                    plt.plot(epochs.times, components[nc, :], label="original component")
-                    plt.title("W x W_i = %s" % (dotproduct))
-                    plt.legend()
+                    fig, ax = plt.subplots()
+                    textstr = '\n'.join((
+                        r'$|m|=%.5f$' % (np.linalg.norm(jd.mixing[:, nc]), ),
+                        r'$|m_i|=%.5f$' % (np.linalg.norm(jd_i.mixing[:, nc], )),
+                        r'$m x m_i=%.5f$' % (dotproduct, )))
+                    ax.plot(epochs.times, components_i[nc, :], label="bootstrap component")
+                    ax.plot(epochs.times, components[nc, :], label="original component")
+                    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+                    ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=14,
+                            verticalalignment='top', bbox=props)
+                    ax.legend()
                     plt.show()
 
                     components_i[nc, :] = components_i[nc, :]*-1
