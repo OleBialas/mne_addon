@@ -1,14 +1,43 @@
 from matplotlib import pyplot as plt
 from mne.viz import plot_evoked_topo
 from scipy.optimize import curve_fit
-import numpy as numpy
-import matplotlib.cm as cmx
-import matplotlib.colors as colors
+import numpy as np
+from matplotlib import patches, colors, cm
 from mne.stats import bootstrap_confidence_interval
 from mne_addon.analysis import gfp, rms
 from mne.epochs import Epochs, BaseEpochs
 from mne.evoked import Evoked
 from sklearn.cluster import KMeans
+
+
+def visualize_auto_reject(ar):
+
+    fig, ax = plt.subplots(2)
+    # plotipyt histogram of rejection thresholds
+    ax[0].set_title("Rejection Thresholds")
+    ax[0].hist(1e6 * np.array(list(ar.threshes_.values())), 30,
+               color='g', alpha=0.4)
+    ax[0].set(xlabel='Threshold (μV)', ylabel='Number of sensors')
+    # plot cross validation error:
+    loss = ar.loss_['eeg'].mean(axis=-1)  # losses are stored by channel type.
+    im = ax[1].matshow(loss.T * 1e6, cmap=plt.get_cmap('viridis'))
+    ax[1].set_xticks(range(len(ar.consensus)))
+    ax[1].set_xticklabels(['%.1f' % c for c in ar.consensus])
+    ax[1].set_yticks(range(len(ar.n_interpolate)))
+    ax[1].set_yticklabels(ar.n_interpolate)
+    # Draw rectangle at location of best parameters
+    idx, jdx = np.unravel_index(loss.argmin(), loss.shape)
+    rect = patches.Rectangle((idx - 0.5, jdx - 0.5), 1, 1, linewidth=2,
+                             edgecolor='r', facecolor='none')
+    ax[1].add_patch(rect)
+    ax[1].xaxis.set_ticks_position('bottom')
+    ax[1].set(xlabel=r'Consensus percentage $\kappa$',
+              ylabel=r'Max sensors interpolated $\rho$',
+              title='Mean cross validation error (x 1e6)')
+    fig.colorbar(im)
+    fig.tight_layout()
+    fig.savefig(_out_folder / Path("reject_epochs.pdf"), dpi=800)
+    plt.close()
 
 
 def plot_multiple_ERP(epochs, n_row=3, n_col=2, outfile=None, title=None,
@@ -79,7 +108,7 @@ def compare_evokeds(dataset, groups, mode="gfp", title=None, subtitles=None,
     """
     cNorm = colors.Normalize(vmin=min(color_coding.values()),
                              vmax=max(color_coding.values()))
-    cmap = cmx.ScalarMappable(norm=cNorm, cmap="cool")
+    cmap = cm.ScalarMappable(norm=cNorm, cmap="cool")
     if mode == "gfp":
         stat_fun = gfp
     elif mode == "rms":
@@ -133,7 +162,7 @@ def bootstrap_comparison(list_of_epochs, stat_fun=None, color_coding=None, title
         stat_fun = gfp
     cNorm = colors.Normalize(vmin=min(color_coding.values()),
                              vmax=max(color_coding.values()))
-    cmap = cmx.ScalarMappable(norm=cNorm, cmap="cool")
+    cmap = cm.ScalarMappable(norm=cNorm, cmap="cool")
 
     fig, ax = plt.subplots(len(list_of_epochs), sharex="all", sharey="all")
     fig.colorbar(cmap, ax=ax)

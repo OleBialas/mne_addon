@@ -1,5 +1,4 @@
-from mne.channels import read_custom_montage
-from mne import set_eeg_reference, events_from_annotations
+from mne import set_eeg_reference, channels, events_from_annotations
 from mne.epochs import Epochs
 from autoreject import AutoReject, Ransac
 import numpy as np
@@ -10,70 +9,14 @@ from matplotlib import pyplot as plt, patches
 from mne.io import read_raw_brainvision
 
 
-def run_pipeline(raw, parameters, out_folder):
+def auto_reject(epochs, **kwargs):
     """
-    Do all the preprocessing steps according to the parameters. Processed data,
-    log files and plots are saved in out_folder.
+    run the auto reject pipeline on epoched data. Return the instance of AutoReject and the cleaned epochs.
+    for a detailed description on how the algorithm works and what the arguments are, see https://autoreject.github.
     """
-    global _out_folder
-    _out_folder = out_folder
-    if "filtering" in parameters:  # STEP1: filter the data
-        print("removing power line noise...")
-        raw = filtering(raw, **parameters["filtering"])
-    if "epochs" in parameters:  # STEP2: epoch the data
-        epochs = Epochs(raw, events_from_annotations(raw)[0],
-                        **parameters["epochs"], preload=True)
-        del raw
-        # all other steps work on epoched data:
-        if "rereference" in parameters:  # STEP3: re-reference the data
-            print("computing robust average reference...")
-            epochs = robust_avg_ref(epochs, parameters["rereference"])
-        if "ica" in parameters:  # STEP4: remove blinks and sacchades
-            epochs, ica = reject_ica(epochs, **parameters["ica"])
-        if "interpolate" in parameters:  # STEP5: interpolate bad channels
-            print("interpolating bad channels...")
-            interpolate_bads(epochs, parameters["interpolate"])
-        if "reject" in parameters:  # STEP6: epoch rejection / reparation
-            print("repairing / rejecting bad epochs")
-            epochs = reject_epochs(epochs, parameters["reject"])
-
-        return epochs, ica
-    else:
-        return raw
-
-
-def reject_epochs(epochs, autoreject_parameters):
-    ar = AutoReject(**autoreject_parameters, verbose="tqdm")
-    # for event in epochs.event_id.keys():
-    #    epochs[event] = ar.fit_transform(epochs[event])
+    ar = AutoReject(**kwargs, verbose="tqdm")
     epochs = ar.fit_transform(epochs)
-    fig, ax = plt.subplots(2)
-    # plotipyt histogram of rejection thresholds
-    ax[0].set_title("Rejection Thresholds")
-    ax[0].hist(1e6 * np.array(list(ar.threshes_.values())), 30,
-               color='g', alpha=0.4)
-    ax[0].set(xlabel='Threshold (μV)', ylabel='Number of sensors')
-    # plot cross validation error:
-    loss = ar.loss_['eeg'].mean(axis=-1)  # losses are stored by channel type.
-    im = ax[1].matshow(loss.T * 1e6, cmap=plt.get_cmap('viridis'))
-    ax[1].set_xticks(range(len(ar.consensus)))
-    ax[1].set_xticklabels(['%.1f' % c for c in ar.consensus])
-    ax[1].set_yticks(range(len(ar.n_interpolate)))
-    ax[1].set_yticklabels(ar.n_interpolate)
-    # Draw rectangle at location of best parameters
-    idx, jdx = np.unravel_index(loss.argmin(), loss.shape)
-    rect = patches.Rectangle((idx - 0.5, jdx - 0.5), 1, 1, linewidth=2,
-                             edgecolor='r', facecolor='none')
-    ax[1].add_patch(rect)
-    ax[1].xaxis.set_ticks_position('bottom')
-    ax[1].set(xlabel=r'Consensus percentage $\kappa$',
-              ylabel=r'Max sensors interpolated $\rho$',
-              title='Mean cross validation error (x 1e6)')
-    fig.colorbar(im)
-    fig.tight_layout()
-    fig.savefig(_out_folder/Path("reject_epochs.pdf"), dpi=800)
-    plt.close()
-    return epochs
+    return ar, epochs
 
 
 def filtering(raw, notch=None, highpass=None, lowpass=None,
@@ -105,32 +48,26 @@ def filtering(raw, notch=None, highpass=None, lowpass=None,
     return raw
 
 
-def read_brainvision(fname, apply_montage=True, preload=False):
-    """Load brainvision data. If apply_montage=True, load and apply the standard
-    montage for the 64-channel acticap. If add_ref=True add a reference
-    channel with all zeros"""
+def read_brainvision(file_name, electrode_mapping=None, electrode_montage=None, preload=False):
+    """ load data in the brainvision format, optionally rename electrodes and apply an electrode montage
 
-    raw = read_raw_brainvision(fname, preload=preload)
-    if apply_montage:
-        mapping = {"1": "Fp1", "2": "Fp2", "3": "F7", "4": "F3", "5": "Fz",
-                   "6": "F4", "7": "F8", "8": "FC5", "9": "FC1", "10": "FC2",
-                   "11": "FC6", "12": "T7", "13": "C3", "14": "Cz", "15": "C4",
-                   "16": "T8", "17": "TP9", "18": "CP5", "19": "CP1",
-                   "20": "CP2", "21": "CP6", "22": "TP10", "23": "P7",
-                   "24": "P3", "25": "Pz", "26": "P4", "27": "P8", "28": "PO9",
-                   "29": "O1", "30": "Oz", "31": "O2", "32": "PO10",
-                   "33": "AF7", "34": "AF3", "35": "AF4", "36": "AF8",
-                   "37": "F5", "38": "F1", "39": "F2", "40": "F6", "41": "FT9",
-                   "42": "FT7", "43": "FC3", "44": "FC4", "45": "FT8",
-                   "46": "FT10", "47": "C5", "48": "C1", "49": "C2",
-                   "50": "C6", "51": "TP7", "52": "CP3", "53": "CPz",
-                   "54": "CP4", "55": "TP8", "56": "P5", "57": "P1",
-                   "58": "P2", "59": "P6", "60": "PO7", "61": "PO3",
-                   "62": "POz", "63": "PO4", "64": "PO8"}
-        raw.rename_channels(mapping)
-        montage = read_custom_montage(
-            Path(os.environ["EXPDIR"])/Path("AS-96_REF.bvef"))
-        raw.set_montage(montage)
+    Arguments:
+        file_name (str): Path to the raw data to load
+        electrode_mapping (dict): New electrode names, the key is the channel number and the value the new name.
+            for example {"1": "Fp1"} will rename the first electrode to "Fp1"
+        electrode_montage (str | instance of channels.montage): Position of the electrodes. Can either be the path
+            to a .bvef file or an instance of mne.channels.montage.DigMontage
+        preload (bool): preload the data
+    Returns:
+        instance of mne.io.Raw: the raw data
+        """
+    raw = read_raw_brainvision(file_name, preload=preload)
+    if electrode_mapping is not None:
+        raw.rename_channels(electrode_mapping)
+    if electrode_montage is not None:
+        if isinstance(electrode_montage, (str, Path)):
+            electrode_montage = channels.read_custom_montage(electrode_montage)
+        raw.set_montage(electrode_montage)
     return raw
 
 
